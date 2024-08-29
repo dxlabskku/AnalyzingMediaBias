@@ -14,14 +14,19 @@ For data collection, we crawled entire articles posted in the subcategories of d
 The sample dataset is available in "news crawling data(sample).xlsx" file. We are only allowed to distribute the data for the research purpose, if you want to achieve full datasets, please complete the request form @ https://docs.google.com/forms/d/e/1FAIpQLSc72tNn4QPWYXRcUOv6D8E6zzR0a4IHCS_Qo0Z9NYfkrxw6dw/viewform?usp=sf_link
 
 # Result
-- **Result of News Outlets Classification** 
+- **Result of Learning Rate Test (1e-5 to 7e-5)** 
  
-   ![FIG5](https://github.com/dxlabskku/PoliticalOrientationDiscrimination/assets/126649723/21b51488-4db3-4742-9c9c-8c8908cd518d)
+   ![image](https://github.com/user-attachments/assets/ce658573-1a0b-441b-93d9-7a8260edb109)
   
 
-- **Result of Political Orientation Classification**
+- **Result of Epochs Test (1 to 10)**
      
-   ![FIG6](https://github.com/dxlabskku/PoliticalOrientationDiscrimination/assets/126649723/d1c11dad-76e0-4571-9484-f475b5e6f0fa)
+   ![image](https://github.com/user-attachments/assets/6cd9420c-ed22-4abb-8efd-d9a6918d1326)
+
+
+- **Word Clusters of top most frequently shown XAI weighted feature words. The red color samples indicate conservative and the blue liberal**
+
+   ![image](https://github.com/user-attachments/assets/8d40b7fd-b099-44a0-9002-7b22968c4572)
 
 
 ## Reference
