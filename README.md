@@ -3,6 +3,7 @@
 In this paper, to gain a more detailed understanding of whether it is possible to distinguish biases through news articles or differentiate media outlets themselves, we collected an extensive amount of news articles spanning over five years. To efficiently analyze this vast amount of data, we applied machine learning techniques.
 
 RQ1: Can we accurately classify the political orientation of news articles focusing on national defense and foreign policy topics?
+
 RQ2: How effective is the LIME model in identifying the key features driving the classification of political orientation and in detecting temporal shifts in media bias across different periods?
 
 
