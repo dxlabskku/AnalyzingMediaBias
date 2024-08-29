@@ -1,0 +1,463 @@
+# import
+import torch
+from torch import nn
+import torch.optim as optim
+import torch.nn.functional as F
+from torch.utils.data import Dataset, DataLoader
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+import re
+from sklearn.model_selection import train_test_split
+from datasets import Dataset
+from sklearn.ensemble import VotingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+from transformers import AutoModel, AutoTokenizer
+from collections import Counter
+import evaluate
+from transformers import BertTokenizer, BertForSequenceClassification, Trainer, TrainingArguments, BertModel
+from transformers import Trainer, TrainingArguments, AutoModelForSequenceClassification, EarlyStoppingCallback
+from transformers import DataCollatorWithPadding, BertForSequenceClassification
+import shap
+import transformers
+from lime.lime_text import LimeTextExplainer
+import random
+
+
+
+# 데이터 불러오기
+data = pd.read_excel("daum_news_crawling(new).xlsx", index_col = 0, engine = 'openpyxl')
+
+
+# In[ ]:
+
+
+p_data = data[(data['source'] == '조선일보') | (data['source'] == '중앙일보') | (data['source'] == '동아일보')]
+p_data = p_data.reset_index()
+p_data
+
+
+# In[ ]:
+
+
+n_data = data[(data['source'] == '한겨레') | (data['source'] == '경향신문')]
+n_data = n_data.reset_index()
+n_data
+
+
+# In[ ]:
+
+
+p_data_merge = p_data.drop_duplicates(subset = 'title').reset_index(drop = True)
+p_data_merge = p_data.drop_duplicates(subset = 'contents').reset_index(drop = True)
+p_data_merge
+
+
+# In[ ]:
+
+
+n_data_merge = n_data.drop_duplicates(subset = 'title').reset_index(drop = True)
+n_data_merge = n_data.drop_duplicates(subset = 'contents').reset_index(drop = True)
+n_data_merge
+
+
+# In[ ]:
+
+
+p_data_final = p_data_merge.loc[:, ['title', "contents"]]
+p_data_final['label'] = 0
+
+p_data_final['title'] = p_data_final['title'].fillna("")
+p_data_final['contents'] = p_data_final['contents'].fillna("")
+p_data_final
+
+
+# In[ ]:
+
+
+n_data_final = n_data_merge.loc[:, ['title', "contents"]]
+n_data_final['label'] = 1
+n_data_final
+
+
+# In[ ]:
+
+
+tqdm.pandas()
+
+
+# In[ ]:
+
+
+def clean_text(texts):
+    review = texts
+    review = re.sub(r'[@%\\*=()/~#&\+á?\xc3\xa1\-\|\.\:\;\!\-\,\_\~\$\'\♣\▲\ⓒ\■\[\]\“\”\☞\‘\’\▶\·\…\〃\<\>"]', '', review) #remove punctuation
+    review = re.sub(r'<[^>]+>','',review)
+    review = re.sub(r'\s+', ' ', review)
+    review = re.sub(r'^\s+', '', review)
+    review = re.sub(r'\s+$', '', review)
+    review = re.sub(r'[A-Za-z]+', '', review)
+    review = re.sub(r'[\u4e00-\u9fff]+', '', review)
+    review = re.sub(r'\S+\s+기자', '', review)
+    review = re.sub(r'\S+\s+선임기자', '', review)
+    review = re.sub(r'\S+\s+군사전문기자', '', review)
+    review = re.sub(r'\S+기자', '', review)
+    review = re.sub(r'\S+선임기자', '', review)
+    review = re.sub(r'\S+군사전문기자', '', review)
+    return review
+
+p_data_final['clean_contents'] = p_data_final['contents'].progress_apply(clean_text)
+n_data_final['clean_contents'] = n_data_final['contents'].progress_apply(clean_text)
+
+
+# In[ ]:
+
+
+# 정규표현식 패턴 설정
+pattern = r'\<.*?\>|\[.*?\]'
+
+# 'title' 열의 각 행에 대해 정규표현식을 적용하여 지우기
+p_data_final['title'] = p_data_final['title'].apply(lambda x: re.sub(pattern, '', x))
+n_data_final['title'] = n_data_final['title'].apply(lambda x: re.sub(pattern, '', x))
+
+
+# In[ ]:
+
+
+remove_source = ['조선일보', '중앙일보', '동아일보', '한겨레', '경향신문', '오마이뉴스', '동아닷컴', '뉴시스', '중앙포토', 
+                 '무단 전재 및 재배포 금지', '기사', '어제 못본', '명장면이 궁금하다면', '오늘의', '김상호', '절친이 되어 주세요', 
+                 '신문구독주주신청', '페이스북카카오톡사설칼럼신문', '무단전재 및 재배포 금지', '박태근', '박성진', '유신모', 
+                 '김재중', '박은경', '정욱식', '코인데스크', '도쿄박형준', '박지훈', '최현호', '디지털뉴스팀', '팩트체크페이스', 
+                 '김진우', '박영환', '구독', '윤상호', '김민석', '박병수', '박민규', '이상훈', '경향포토', '단독', '사진',
+                 '포토뉴스', '코멘터리', '사설', '동아광장', '속보', 'VIEW', '포토', '뉴스원샷', '르포', '퇴근길 한 컷', '팩트체크'
+                 'view', '서소문사진관', 'Why', '뉴스분석', '포토사오정', '뉴스원샷', '사진', 'Focus', '사진관', '칼럼']
+
+pattern = '|'.join(remove_source)
+p_data_final['clean_contents'] = p_data_final['clean_contents'].str.replace(pattern, '', regex = True)
+n_data_final['clean_contents'] = n_data_final['clean_contents'].str.replace(pattern, '', regex = True)
+p_data_final['title'] = p_data_final['title'].str.replace(pattern, '', regex = True)
+n_data_final['title'] = n_data_final['title'].str.replace(pattern, '', regex = True)
+
+
+# In[ ]:
+
+
+sum_data_final = pd.concat([p_data_final, n_data_final], axis=0)
+sum_data_final.reset_index(inplace=True)
+sum_data_final
+
+
+# In[ ]:
+
+
+sum_data_final = sum_data_final[sum_data_final['title'].str.len() >= 10]
+sum_data_final.reset_index(inplace=True)
+sum_data_final
+
+
+# In[ ]:
+
+
+sum_data_final[sum_data_final['label'] == 0]
+
+
+# In[ ]:
+
+
+sum_data_final[sum_data_final['label'] == 1]
+
+
+# In[ ]:
+
+
+model_name = "klue/bert-base"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+
+# In[ ]:
+
+
+# def truncate_comments(comment):
+#     try:
+#         encoded_input = tokenizer(comment, truncation=True, max_length=512, return_tensors='pt')
+#         decoded_comment = tokenizer.decode(encoded_input['input_ids'][0])
+#         cleaned_comment = ' '.join([token for token in decoded_comment.split() if token not in ['[CLS]', '[UNK]', '[SEP]']])
+#         return cleaned_comment
+#     except Exception as e:
+#         print(f'Error processing comment: {comment}')
+#         print(f'Error: {e}')
+#         return comment  # 오류가 발생한 경우 원본 댓글을 반환
+# print('::start process::')
+# sum_data_final['clean_contents'] = sum_data_final['clean_contents'].progress_apply(truncate_comments)
+
+
+# In[ ]:
+
+
+label_dict = {}
+for i, label in enumerate(set(sum_data_final["label"])):
+    label_dict[label] = i
+
+
+# In[ ]:
+
+
+sum_data_final = sum_data_final[["title", "clean_contents", "label"]]
+for i in label_dict:
+    sum_data_final.loc[(sum_data_final['label'] == i), 'label'] = label_dict[i]
+
+
+# In[ ]:
+
+
+# title에 대한 모델
+title_train_data, title_test_data = train_test_split(sum_data_final, test_size=0.1, random_state=42)
+title_train_data.rename(columns={'title': 'context'}, inplace=True)
+title_test_data.rename(columns={'title': 'context'}, inplace=True)
+
+title_train_data = title_train_data[["context", "label"]]
+title_test_data = title_test_data[["context", "label"]]
+
+
+# In[ ]:
+
+
+# contents에 대한 모델
+contents_train_data, contents_test_data = train_test_split(sum_data_final, test_size=0.1, random_state=42)
+contents_train_data.rename(columns={'clean_contents': 'context'}, inplace=True)
+contents_test_data.rename(columns={'clean_contents': 'context'}, inplace=True)
+
+contents_train_data = contents_train_data[["context", "label"]]
+contents_test_data = contents_test_data[["context", "label"]]
+
+
+# In[ ]:
+
+
+title_train_dataset = Dataset.from_pandas(title_train_data)
+title_test_dataset = Dataset.from_pandas(title_test_data)
+
+
+# In[ ]:
+
+
+contents_train_dataset = Dataset.from_pandas(contents_train_data)
+contents_test_dataset = Dataset.from_pandas(contents_test_data)
+
+
+# In[ ]:
+
+
+title_train_dataset = title_train_dataset.map(lambda example: tokenizer(example['context'], padding=True, truncation=True, max_length=512), batched=True)
+title_test_dataset = title_test_dataset.map(lambda example: tokenizer(example['context'], padding=True, truncation=True, max_length=512), batched=True)
+
+
+# In[ ]:
+
+
+contents_train_dataset = contents_train_dataset.map(lambda example: tokenizer(example['context'], padding=True, truncation=True, max_length=512), batched=True)
+contents_test_dataset = contents_test_dataset.map(lambda example: tokenizer(example['context'], padding=True, truncation=True, max_length=512), batched=True)
+
+
+# In[ ]:
+
+
+accuracy = evaluate.load("accuracy")
+
+
+# In[ ]:
+
+
+def compute_metrics(eval_pred):
+    predictions, labels = eval_pred
+    predictions = np.argmax(predictions, axis=1)
+    return accuracy.compute(predictions=predictions, references=labels)
+
+
+# In[ ]:
+
+
+device = torch.device("cuda")
+
+
+# In[ ]:
+
+
+# title 모델 경로
+title_model_save_path = "title_model(batch32_epoch15).pth"
+
+
+# In[ ]:
+
+
+# title 모델 불러오기
+title_model = BertForSequenceClassification.from_pretrained(model_name, num_labels=2)
+title_model.load_state_dict(torch.load(title_model_save_path))
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+# explainer = LimeTextExplainer(class_names=["Conservative", "Progressive"])
+# exp_list = list()
+
+# def lime_explanation(texts):
+#     inputs = tokenizer(texts, padding=True, truncation=True, max_length=512, return_tensors="pt")
+#     outputs = contents_model(**inputs)
+#     probabilities = torch.nn.functional.softmax(outputs.logits, dim=1).detach().cpu().numpy()
+#     return probabilities
+
+
+# In[ ]:
+
+
+# for i in tqdm(range(2), desc="Generating LIME Explanations", unit="text"):
+#     text_to_explain = sum_data_final["clean_contents"][i]
+#     explanation = explainer.explain_instance(text_to_explain, lime_explanation, num_features=10)
+#     exp_list.append(explanation.as_list())
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+# exp_list = list()
+# exp_list.append(explanation.as_list())
+
+
+# In[ ]:
+
+
+explainer = LimeTextExplainer(class_names=["Conservative", "Progressive"])
+con_exp_list = list()
+pro_exp_list = list()
+
+def lime_explanation(texts):
+    inputs = tokenizer(texts, padding=True, truncation=True, max_length=512, return_tensors="pt")
+    outputs = title_model(**inputs)
+    probabilities = torch.nn.functional.softmax(outputs.logits, dim=1).detach().cpu().numpy()
+    return probabilities
+
+
+# In[ ]:
+
+
+# 0에서 42353 사이의 무작위 인덱스 3000개 추출
+random_indices = random.sample(range(42353), 3000)
+
+for i in tqdm(random_indices, desc="Generating LIME Explanations", unit="text"):
+    text_to_explain = sum_data_final["title"][i]
+    explanation = explainer.explain_instance(text_to_explain, lime_explanation, num_features=5)
+    con_exp_list.append(explanation.as_list())
+
+
+# In[ ]:
+
+
+# 결과를 저장할 리스트
+con_values = []
+
+# 각 리스트에서 가장 음수인 튜플의 첫 번째 값을 추출
+for exp in con_exp_list:
+    con_tuple = min(exp, key=lambda x: x[1])
+    con_value = con_tuple[0]
+    con_values.append(con_value)
+
+# 결과 출력
+print(con_values)
+
+
+# In[ ]:
+
+
+from collections import Counter
+
+# Counter를 사용하여 각 단어의 카운트를 세기
+word_counts = Counter(con_values)
+
+# 카운트가 높은 순으로 정렬
+sorted_word_counts = word_counts.most_common()
+
+# 결과 출력
+print(sorted_word_counts)
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+# 42354에서 59275 사이의 무작위 인덱스 3000개 추출
+random_indices = random.sample(range(42354, 59275), 3000)
+
+for i in tqdm(random_indices, desc="Generating LIME Explanations", unit="text"):
+    text_to_explain = sum_data_final["title"][i]
+    explanation = explainer.explain_instance(text_to_explain, lime_explanation, num_features=5)
+    pro_exp_list.append(explanation.as_list())
+
+
+# In[ ]:
+
+
+# 결과를 저장할 리스트
+pro_values = []
+
+# 각 리스트에서 가장 음수인 튜플의 첫 번째 값을 추출
+for exp in pro_exp_list:
+    pro_tuple = max(exp, key=lambda x: x[1])
+    pro_value = pro_tuple[0]
+    pro_values.append(pro_value)
+
+# 결과 출력
+print(pro_values)
+
+
+# In[ ]:
+
+
+from collections import Counter
+
+# Counter를 사용하여 각 단어의 카운트를 세기
+word_counts = Counter(pro_values)
+
+# 카운트가 높은 순으로 정렬
+sorted_word_counts = word_counts.most_common()
+
+# 결과 출력
+print(sorted_word_counts)
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
