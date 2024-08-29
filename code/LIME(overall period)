@@ -141,7 +141,6 @@ title_model.load_state_dict(torch.load(title_model_save_path))
 
 
 # LIME 분석
-
 explainer = LimeTextExplainer(class_names=["Conservative", "Progressive"])
 con_exp_list = list()
 pro_exp_list = list()
