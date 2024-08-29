@@ -96,9 +96,6 @@ sum_data_final.reset_index(inplace=True)
 
 sum_data_final["concat"] = sum_data_final["title"] + " @ " + sum_data_final["clean_contents"]
 
-
-
-# 모델 학습 및 평가
 model_name = "klue/bert-base"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
@@ -127,6 +124,10 @@ concat_test_dataset = Dataset.from_pandas(concat_test_data)
 concat_train_dataset = concat_train_dataset.map(lambda example: tokenizer(example['context'], padding=True, truncation=True, max_length=512), batched=True)
 concat_val_dataset = concat_val_dataset.map(lambda example: tokenizer(example['context'], padding=True, truncation=True, max_length=512), batched=True)
 concat_test_dataset = concat_test_dataset.map(lambda example: tokenizer(example['context'], padding=True, truncation=True, max_length=512), batched=True)
+
+
+
+# 모델 학습 및 평가
 
 training_args = TrainingArguments(
     output_dir="BERT_result_concat",
