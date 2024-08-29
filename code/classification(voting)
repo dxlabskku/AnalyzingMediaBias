@@ -1,22 +1,25 @@
 # import
-
+import re
 import torch
-from torch import nn
-import torch.optim as optim
-import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
-import re
-from sklearn.model_selection import train_test_split
+import torch.optim as optim
+import torch.nn.functional as F
+import evaluate
 from datasets import Dataset
+from torch.utils.data import Dataset, DataLoader
+from torch import nn
+from tqdm import tqdm
+from collections import Counter
+from sklearn.model_selection import train_test_split
 from sklearn.ensemble import VotingClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
+from sklearn.metrics import classification_report
+from transformers import BertTokenizer, BertForSequenceClassification, Trainer, TrainingArguments, BertModel
+from transformers import Trainer, TrainingArguments, AutoModelForSequenceClassification, EarlyStoppingCallback
+from transformers import DataCollatorWithPadding
 from transformers import AutoModel, AutoTokenizer
-from collections import Counter
 
 
 
@@ -31,6 +34,7 @@ p_data = p_data.reset_index()
 
 n_data = data[(data['source'] == '한겨레') | (data['source'] == '경향신문')]
 n_data = n_data.reset_index()
+
 
 
 # 각종 전처리
@@ -94,4 +98,156 @@ sum_data_final = sum_data_final[sum_data_final['title'].str.len() >= 10]
 
 
 
-# 
+# 모델 학습 및 평가
+model_name = "klue/bert-base"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+label_dict = {}
+for i, label in enumerate(set(sum_data_final["label"])):
+    label_dict[label] = i
+
+sum_data_final = sum_data_final[["title", "clean_contents", "label"]]
+for i in label_dict:
+    sum_data_final.loc[(sum_data_final['label'] == i), 'label'] = label_dict[i]
+
+title_train_data, title_test_data = train_test_split(sum_data_final, test_size=0.2, random_state=42)
+title_val_data, title_test_data = train_test_split(title_test_data, test_size=0.5, random_state=42)
+
+title_train_data.rename(columns={'title': 'context'}, inplace=True)
+title_val_data.rename(columns={'title': 'context'}, inplace=True)
+title_test_data.rename(columns={'title': 'context'}, inplace=True)
+
+title_train_data = title_train_data[["context", "label"]]
+title_val_data = title_val_data[["context", "label"]]
+title_test_data = title_test_data[["context", "label"]]
+
+contents_train_data, contents_test_data = train_test_split(sum_data_final, test_size=0.2, random_state=42)
+contents_val_data, contents_test_data = train_test_split(contents_test_data, test_size=0.5, random_state=42)
+contents_train_data.rename(columns={'clean_contents': 'context'}, inplace=True)
+contents_val_data.rename(columns={'clean_contents': 'context'}, inplace=True)
+contents_test_data.rename(columns={'clean_contents': 'context'}, inplace=True)
+
+contents_train_data = contents_train_data[["context", "label"]]
+contents_val_data = contents_val_data[["context", "label"]]
+contents_test_data = contents_test_data[["context", "label"]]
+
+title_train_dataset = Dataset.from_pandas(title_train_data)
+title_val_dataset = Dataset.from_pandas(title_val_data)
+title_test_dataset = Dataset.from_pandas(title_test_data)
+
+contents_train_dataset = Dataset.from_pandas(contents_train_data)
+contents_val_dataset = Dataset.from_pandas(contents_val_data)
+contents_test_dataset = Dataset.from_pandas(contents_test_data)
+
+title_train_dataset = title_train_dataset.map(lambda example: tokenizer(example['context'], padding=True, truncation=True, max_length=512), batched=True)
+title_val_dataset = title_val_dataset.map(lambda example: tokenizer(example['context'], padding=True, truncation=True, max_length=512), batched=True)
+title_test_dataset = title_test_dataset.map(lambda example: tokenizer(example['context'], padding=True, truncation=True, max_length=512), batched=True)
+
+contents_train_dataset = contents_train_dataset.map(lambda example: tokenizer(example['context'], padding=True, truncation=True, max_length=512), batched=True)
+contents_val_dataset = contents_val_dataset.map(lambda example: tokenizer(example['context'], padding=True, truncation=True, max_length=512), batched=True)
+contents_test_dataset = contents_test_dataset.map(lambda example: tokenizer(example['context'], padding=True, truncation=True, max_length=512), batched=True)
+
+training_args = TrainingArguments(
+    output_dir="BERT_result_title",
+    learning_rate=1e-5,
+    per_device_train_batch_size=32,
+    per_device_eval_batch_size=32,
+    num_train_epochs=10,
+    weight_decay=0.01,
+    evaluation_strategy="epoch",
+    save_strategy="epoch",
+    load_best_model_at_end=True,
+)
+
+training_args2 = TrainingArguments(
+    output_dir="BERT_result_contents",
+    learning_rate=2e-5,
+    per_device_train_batch_size=32,
+    per_device_eval_batch_size=32,
+    num_train_epochs=10,
+    weight_decay=0.01,
+    evaluation_strategy="epoch",
+    save_strategy="epoch",
+    load_best_model_at_end=True,
+)
+
+accuracy = evaluate.load("accuracy")
+
+def compute_metrics(eval_pred):
+    predictions, labels = eval_pred
+    predictions = np.argmax(predictions, axis=1)
+    return accuracy.compute(predictions=predictions, references=labels)
+
+device = torch.device("cuda")
+
+data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+title_model = BertForSequenceClassification.from_pretrained("klue/bert-base", num_labels=2).to(device)
+
+title_trainer = Trainer(
+    model=title_model.to(device),
+    args=training_args,
+    train_dataset=title_train_dataset,
+    eval_dataset=title_val_dataset,
+    tokenizer=tokenizer,
+    data_collator=data_collator,
+    compute_metrics=compute_metrics
+)
+
+title_trainer.train()
+
+title_predictions = title_trainer.predict(title_test_dataset)
+title_predicted_labels = np.argmax(title_predictions.predictions, axis=1)
+title_true_labels = title_test_dataset["label"]
+
+title_accuracy = accuracy_score(title_true_labels, title_predicted_labels)
+print(f"Test Accuracy: {title_accuracy}")
+
+print(classification_report(title_true_labels, title_predicted_labels, digits = 4))
+
+data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+contents_model = BertForSequenceClassification.from_pretrained("klue/bert-base", num_labels=2).to(device)
+
+contents_trainer = Trainer(
+    model=contents_model.to(device),
+    args=training_args2,
+    train_dataset=contents_train_dataset,
+    eval_dataset=contents_val_dataset,
+    tokenizer=tokenizer,
+    data_collator=data_collator,
+    compute_metrics=compute_metrics
+)
+
+contents_trainer.train()
+
+contents_predictions = contents_trainer.predict(contents_test_dataset)
+contents_predicted_labels = np.argmax(contents_predictions.predictions, axis=1)
+contents_true_labels = contents_test_dataset["label"]
+
+contents_accuracy = accuracy_score(contents_true_labels, contents_predicted_labels)
+print(f"Test Accuracy: {contents_accuracy}")
+
+print(classification_report(contents_true_labels, contents_predicted_labels, digits = 4))
+
+title_test_predictions = title_trainer.predict(title_test_dataset)
+contents_test_predictions = contents_trainer.predict(contents_test_dataset)
+
+title_probs = torch.softmax(torch.tensor(title_test_predictions.predictions), dim=1)
+contents_probs = torch.softmax(torch.tensor(contents_test_predictions.predictions), dim=1)
+
+combined_probs = (title_probs + contents_probs) / 2
+
+final_predictions = torch.argmax(combined_probs, dim=1).numpy()
+
+true_labels = title_test_dataset['label']
+
+final_accuracy = accuracy_score(true_labels, final_predictions)
+print(f"Soft Voting Test Accuracy: {final_accuracy}")
+
+
+
+# 학습 모델 저장
+contents_model_save_path = "contents_model(batch32_epoch10).pth"
+torch.save(contents_model.state_dict(), contents_model_save_path)
+
+title_model_save_path = "title_model(batch32_epoch10).pth"
+torch.save(title_model.state_dict(), title_model_save_path)
