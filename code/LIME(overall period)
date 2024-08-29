@@ -27,16 +27,14 @@ import random
 
 
 
-# 데이터 불러오기
+# data 불러오기
 data = pd.read_excel("daum_news_crawling(new).xlsx", index_col = 0, engine = 'openpyxl')
 
-
-# In[ ]:
 
 
 p_data = data[(data['source'] == '조선일보') | (data['source'] == '중앙일보') | (data['source'] == '동아일보')]
 p_data = p_data.reset_index()
-p_data
+
 
 
 # In[ ]:
