@@ -1,0 +1,97 @@
+# import
+
+import torch
+from torch import nn
+import torch.optim as optim
+import torch.nn.functional as F
+from torch.utils.data import Dataset, DataLoader
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+import re
+from sklearn.model_selection import train_test_split
+from datasets import Dataset
+from sklearn.ensemble import VotingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+from transformers import AutoModel, AutoTokenizer
+from collections import Counter
+
+
+
+# data 불러오기
+data = pd.read_excel("daum_news_crawling(new).xlsx", index_col = 0, engine = 'openpyxl')
+
+
+
+# 보수/진보 메이저 언론사 분류
+p_data = data[(data['source'] == '조선일보') | (data['source'] == '중앙일보') | (data['source'] == '동아일보')]
+p_data = p_data.reset_index()
+
+n_data = data[(data['source'] == '한겨레') | (data['source'] == '경향신문')]
+n_data = n_data.reset_index()
+
+
+# 각종 전처리
+p_data_merge = p_data.drop_duplicates(subset = 'title').reset_index(drop = True)
+p_data_merge = p_data.drop_duplicates(subset = 'contents').reset_index(drop = True)
+
+n_data_merge = n_data.drop_duplicates(subset = 'title').reset_index(drop = True)
+n_data_merge = n_data.drop_duplicates(subset = 'contents').reset_index(drop = True)
+
+p_data_final = p_data_merge.loc[:, ['title', "contents"]]
+p_data_final['label'] = 0
+
+p_data_final['title'] = p_data_final['title'].fillna("")
+p_data_final['contents'] = p_data_final['contents'].fillna("")
+
+n_data_final = n_data_merge.loc[:, ['title', "contents"]]
+n_data_final['label'] = 1
+
+tqdm.pandas()
+
+def clean_text(texts):
+    review = texts
+    review = re.sub(r'[@%\\*=()/~#&\+á?\xc3\xa1\-\|\.\:\;\!\-\,\_\~\$\'\♣\▲\ⓒ\■\[\]\“\”\☞\‘\’\▶\·\…\〃\<\>"]', '', review)
+    review = re.sub(r'\S+\s+기자', '', review)
+    review = re.sub(r'\S+\s+선임기자', '', review)
+    review = re.sub(r'\S+\s+군사전문기자', '', review)
+    review = re.sub(r'\S+기자', '', review)
+    review = re.sub(r'\S+선임기자', '', review)
+    review = re.sub(r'\S+군사전문기자', '', review)
+    review = re.sub(r'\s+', ' ', review)
+    review = re.sub(r'^\s+', '', review)
+    review = re.sub(r'\s+$', '', review)
+    return review
+
+p_data_final['clean_contents'] = p_data_final['contents'].progress_apply(clean_text)
+n_data_final['clean_contents'] = n_data_final['contents'].progress_apply(clean_text)
+p_data_final['title'] = p_data_final['title'].progress_apply(clean_text)
+n_data_final['title'] = n_data_final['title'].progress_apply(clean_text)
+
+pattern = r'\<.*?\>|\[.*?\]'
+
+p_data_final['clean_contents'] = p_data_final['clean_contents'].apply(lambda x: re.sub(pattern, '', x))
+n_data_final['clean_contents'] = n_data_final['clean_contents'].apply(lambda x: re.sub(pattern, '', x))
+p_data_final['title'] = p_data_final['title'].apply(lambda x: re.sub(pattern, '', x))
+n_data_final['title'] = n_data_final['title'].apply(lambda x: re.sub(pattern, '', x))
+
+remove_source = ['조선일보', '중앙일보', '동아일보', '한겨레', '경향신문', '오마이뉴스', '동아닷컴', '뉴시스', '중앙포토', '연합뉴스',
+                 '무단 전재 및 재배포 금지', '기사', '어제 못본', '명장면이 궁금하다면', '오늘의', '절친이 되어 주세요', '코인데스크', 
+                 '신문구독주주신청', '페이스북카카오톡사설칼럼신문', '무단전재 및 재배포 금지', '디지털뉴스팀', '팩트체크페이스', '구독', 
+                 '박태근', '박성진', '유신모', '김재중', '박은경', '정욱식', '도쿄박형준', '박지훈', '최현호', 
+                 '김진우', '박영환', '윤상호', '김민석', '박병수', '박민규', '이상훈', '김상호']
+
+pattern = '|'.join(remove_source)
+p_data_final['clean_contents'] = p_data_final['clean_contents'].str.replace(pattern, '', regex = True)
+n_data_final['clean_contents'] = n_data_final['clean_contents'].str.replace(pattern, '', regex = True)
+
+sum_data_final = pd.concat([p_data_final, n_data_final], axis=0)
+sum_data_final.reset_index(inplace=True)
+
+sum_data_final = sum_data_final[sum_data_final['title'].str.len() >= 10]
+
+
+
+# 
