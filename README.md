@@ -21,7 +21,7 @@ The sample dataset is available in "news crawling data(sample).xlsx" file. We ar
 
 - **Result of Epochs Test (1 to 10)**
      
-   ![image](https://github.com/user-attachments/assets/6cd9420c-ed22-4abb-8efd-d9a6918d1326)
+   ![image](https://github.com/user-attachments/assets/8a4f9716-15ee-4aa0-bbfb-0473ef45ab79)
 
 
 - **Word Clusters of top most frequently shown XAI weighted feature words. The red color samples indicate conservative and the blue liberal**
